@@ -1,0 +1,128 @@
+/*
+Naslov:Projekt Nensi
+Atmel u programskom okruženju Atmel Studio 6
+Autori: Ivan Brezic,Domagoj Kovacevic i Nikolina Marinic
+
+*/
+
+#include "AVR lib/AVR_lib.h"
+#include <avr/io.h>
+#include "LCD/lcd.h"
+#include "USART/USART.h"
+
+//deklaracija varijabli
+#define DHT11_PIN PB1
+uint8_t c=0,iRH,dRH,iTemp,dTemp,CheckSum;
+
+
+void inicijalizacija(){
+	
+	// PB7,PB6,PB5,i PB4 postavljeni kao izlazni pinovi
+	DDRB |= (1 << PB7) | (1 << PB6) | (1 << PB5) | (1 << PB4);
+	
+	lcd_init(); // inicijalizacija lcd displeja
+	adc_init(); // inicijalizacija AD pretvorbe
+	
+	usart_init(19200);
+	
+	sei();
+}
+
+void Request()				/* Microcontroller send start pulse/request */
+{
+	DDRB |= (1<<DHT11_PIN);
+	PORTB &= ~(1<<DHT11_PIN);	/* set to low pin */
+	_delay_ms(20);			/* wait for 20ms */
+	PORTB |= (1<<DHT11_PIN);	/* set to high pin */
+}
+
+void Response()				/* receive response from DHT 11 */
+{
+	DDRB &= ~(1<<DHT11_PIN);
+	while(PINB & (1<<DHT11_PIN));
+	while((PINB & (1<<DHT11_PIN))==0);
+	while(PINB & (1<<DHT11_PIN));
+}
+
+uint8_t Rec_data()
+{
+
+	int q;
+	for ( q=0; q<8; q++)
+	{
+		while((PINB & (1<<DHT11_PIN)) == 0);	/* check received bit 0 or 1 */
+		_delay_us(30);
+		if(PINB & (1<<DHT11_PIN))	 /* if high pulse is greater than 30ms */
+		c = (c<<1)|(0x01);		     /* then its logic HIGH */
+		else				         /* otherwise its logic LOW */
+		c = (c<<1);
+		while(PINB & (1<<DHT11_PIN));
+	}
+	return c;
+}
+
+
+int main(void){
+	
+	inicijalizacija();
+	
+	while(1)
+	{
+		/* po?etni impuls */
+		Request();
+		/* primanje odgovora od DT11 */
+		Response();
+		/* pohrana prvih 8 bitova u  iRH */
+		iRH=Rec_data();
+		/* pohrana sljede?ih 8 bitova u  dRH */
+		dRH=Rec_data();
+		/* pohrana sljede?ih 8 bitova u  iTemp */
+		iTemp=Rec_data();
+		/* pohrana sljede?ih 8 bitova u  dTemp */
+		dTemp=Rec_data();
+		/* pohrana sljede?ih 8 bitova u  CheckSum */
+		CheckSum=Rec_data();
+		
+		
+		lcd_home();
+		lcd_clrscr();
+		lcd_print("T: %u.%u%cC H: %u%%", iTemp, dTemp, 178, iRH);
+		
+		if(usart_read_all() == true){
+			
+			switch (usart_buffer[0]){
+				case 'T':				
+					usart_write("Temperatura: %u.%u C", iTemp, dTemp, 178);
+					break;
+				case 'H':				
+					usart_write("Vlaga: %u.%u%%", iRH, dRH);
+					break;
+				default:
+					usart_write_string("Error");
+					break;
+			}
+						
+		}
+		
+		if(iTemp >=25 && iTemp <27){
+			PORTB |= (1 << PB7);
+			PORTB &= ~(1 << PB6);
+		}
+		else if(iTemp >=27 && iTemp <29){
+			PORTB |= (1 << PB6) | (1 << PB7);
+			
+			PORTB &= ~(1 << PB5);
+		}
+		else if(iTemp >=29 && iTemp<31){
+			PORTB |= (1 << PB6) | (1 << PB7) |(1 << PB5);
+			PORTB &= ~(1 << PB4);
+		}
+		else if(iTemp >=31){
+			PORTB |= (1 << PB6) | (1 << PB7) |(1 << PB5)|(1 << PB4);
+		}
+		
+		_delay_ms(1500);
+	}
+
+	return 0;
+}
